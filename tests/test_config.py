@@ -30,3 +30,10 @@ def test_strategy_granularity(name, granularity, seconds):
     config = Config(token="token", account_id="account", strategy_name=name)
     config.validate()
     assert (config.granularity, config.candle_seconds) == (granularity, seconds)
+
+
+def test_accepts_other_instruments_but_rejects_malformed():
+    Config(token="token", account_id="account", instrument="EUR_USD").validate()
+    Config(token="token", account_id="account", instrument="NAS100_USD").validate()
+    with pytest.raises(ValueError, match="Instrument"):
+        Config(token="token", account_id="account", instrument="btcusd").validate()

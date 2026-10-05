@@ -342,3 +342,24 @@ def test_ladder_closes_when_price_already_fell_back_through_new_stop(tmp_path, m
     client.candles = lambda *args: pd.DataFrame([{"time": client.now.isoformat(), "bid_high": 101.3, "high": 101.3}])
     assert runner.cycle()["action"] == "ladder_stop"
     assert client.closes == ["1"]
+
+
+def test_other_instrument_trades_do_not_block_or_enter_journal(tmp_path, monkeypatch):
+    runner, client = make_runner(tmp_path, monkeypatch)
+    client.live.append({"id": "90", "instrument": "EUR_USD", "state": "OPEN", "openTime": client.now.isoformat(),
+                        "initialUnits": "1000", "price": "1.1", "clientExtensions": {"id": "x", "tag": "goldbot-scalp38"},
+                        "stopLossOrder": {"price": "1.09", "state": "PENDING"},
+                        "takeProfitOrder": {"price": "1.12", "state": "PENDING"}})
+    client.pending = 2
+    client.closed = [{"id": "91", "instrument": "EUR_USD", "initialUnits": "1000", "closeTime": client.now.isoformat(),
+                      "price": "1.1", "averageClosePrice": "1.09", "realizedPL": "-10"}]
+    assert runner.cycle()["action"] == "order_filled"
+    assert client.orders[0][0] == "XAU_USD"
+    assert "91" not in runner.journal.trade_ids()
+    assert runner.journal.pnl_for_day(client.now.date()) == 0
+
+
+def test_standalone_pending_order_still_blocks(tmp_path, monkeypatch):
+    runner, client = make_runner(tmp_path, monkeypatch)
+    client.pending = 1
+    assert runner.cycle()["action"] == "pending_orders"

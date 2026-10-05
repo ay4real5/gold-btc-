@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -67,8 +68,8 @@ class Config:
             raise ValueError("Polling must be 10-60s and stale detection at least 300s")
         if self.strategy_name not in {"session_breakout", *TIMED_STRATEGIES}:
             raise ValueError("Unsupported execution strategy")
-        if self.instrument != "XAU_USD":
-            raise ValueError("Only XAU_USD is supported for execution")
+        if not re.fullmatch(r"[A-Z0-9]+_[A-Z]{3}", self.instrument):
+            raise ValueError("Instrument must look like XAU_USD")
         if self.max_hold_seconds < 300 or self.cooldown_seconds < 300:
             raise ValueError("Holding limit and cooldown must be at least five minutes")
         if not 0.3 <= self.ladder_step_r <= 5 or self.runner_max_hold_seconds < self.max_hold_seconds:

@@ -57,7 +57,7 @@ class PracticeRunner:
     @contextmanager
     def execution_lock(self):
         suffix = "execute" if self.execute else "dry"
-        path = Path(tempfile.gettempdir()) / f"goldbot-{self.account_key}-{suffix}.lock"
+        path = Path(tempfile.gettempdir()) / f"goldbot-{self.account_key}-{self.config.instrument}-{suffix}.lock"
         with path.open("a+b") as handle:
             handle.write(b"0")
             handle.flush()
@@ -131,7 +131,7 @@ class PracticeRunner:
                     self.state["last_exit"] = closed_at
                 if trade.get("clientExtensions", {}).get("id") == self.state.get("pending_order"):
                     self.state.pop("pending_order", None)
-            if trade["id"] not in known:
+            if trade["id"] not in known and trade["instrument"] == self.config.instrument:
                 self._record(trade, closed=True)
                 known.add(trade["id"])
                 added += 1
@@ -162,7 +162,11 @@ class PracticeRunner:
     def cycle(self) -> dict[str, object]:
         now = self.clock()
         logging.info("heartbeat execute=%s strategy=%s", self.execute, self.config.strategy_name)
-        open_trades = self.client.open_trades()
+        account_trades = self.client.open_trades()
+        open_trades = [trade for trade in account_trades if trade["instrument"] == self.config.instrument]
+        # SL/TP orders attached to any open trade count as pending orders; only standalone orders should block entries.
+        attached = sum(1 for trade in account_trades
+                       for key in ("stopLossOrder", "takeProfitOrder", "trailingStopLossOrder") if trade.get(key))
         for trade in open_trades:
             if not self._owned(trade):
                 continue
@@ -208,9 +212,9 @@ class PracticeRunner:
             return {**status, "action": "safety_halt", "reason": self.state["halted"]}
         if self.state.get("pending_order"):
             return {**status, "action": "unresolved_order"}
-        if open_trades or int(account["openTradeCount"]):
+        if open_trades:
             return {**status, "action": "open_trade_exists"}
-        if int(account["pendingOrderCount"]):
+        if int(account["pendingOrderCount"]) > attached:
             return {**status, "action": "pending_orders"}
         if self.state.get("last_exit"):
             since_exit = (now - pd.Timestamp(self.state["last_exit"]).to_pydatetime()).total_seconds()
@@ -293,9 +297,9 @@ class PracticeRunner:
         if not self.execute:
             return {"action": "dry_run_signal", "side": signal.side, "units": str(signed),
                     "sl": str(stop), "tp": str(target), "planned_risk": str(units * abs(bound - stop) * conversion)}
-        if self.client.open_trades():
+        if any(trade["instrument"] == self.config.instrument for trade in self.client.open_trades()):
             return {"action": "open_trade_exists"}
-        client_id = "goldbot-" + sha256((self.account_key + self.config.strategy_name + candle_time).encode()).hexdigest()[:24]
+        client_id = "goldbot-" + sha256((self.account_key + self.config.instrument + self.config.strategy_name + candle_time).encode()).hexdigest()[:24]
         self.state["pending_order"] = client_id
         self._save_state()
         response = self.client.market_order(self.config.instrument, str(signed), f"{stop:.{precision}f}",
