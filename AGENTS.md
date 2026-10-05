@@ -105,3 +105,21 @@ sub-account with its own data folder and 0.1% risk, so the 3% daily cap allows a
 - Over 28 days of scalp38 history: fixed target +3.3R (PF 1.05, max DD 9.6R), ladder +3.6R (PF 1.06, max DD 13.0R).
   No proven difference yet. The plan is an A/B test: the main account runs scalp38 with the fixed target, and a second
   practice sub-account runs `--strategy scalp38 --ladder --account-id <id> --data-dir data/scalp38_ladder --risk 0.001 --execute`.
+
+## Multi-instrument demo (2026-10-05)
+
+`--instrument` lets several runners share the practice account. Locks, open-trade checks, the journal and
+client IDs are scoped per instrument. Five scheduled tasks run scalp38 + ladder at 0.1% risk:
+`GoldBotRunner` (XAU_USD, data/scalp38_ladder) and `GoldBotRunner_{WTICO_USD,NAS100_USD,US30_USD,USD_JPY}`
+(data/scalp38_ladder_<instrument>). Each task has its own 3% daily cap, so the combined worst day is about 15%.
+
+28-day M5 scalp38 results (fixed / ladder, in R):
+- WTICO -2.1 / +7.6
+- XAU +1.5 / +0.3
+- NAS100 -24.5 / -5.8
+- US30 -19.4 / -5.5
+- USD_JPY -1.0 / +2.0 (6 trades)
+- SPX500, DE30, UK100 and XAG lost.
+- EUR_USD, GBP_USD, AUD_USD, USD_CAD and the JPY crosses got 0 trades, because the 10% spread/stop filter blocks M5 and M15 forex.
+
+No instrument has a proven edge. These runners collect data.
