@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 
 import pandas as pd
 
@@ -131,16 +132,21 @@ def m1_fast_signal(candles: pd.DataFrame) -> Signal | None:
 
 
 def session_long_signal(candles: pd.DataFrame, entry_hour: int = 13, stop_atr: float = 6.0,
-                        skip_friday: bool = False) -> Signal | None:
+                        skip_friday: bool = False, trend_ema: int = 0, calm_ratio: float = 0.0,
+                        daily: pd.DataFrame | None = None) -> Signal | None:
     """Long-only session hold on H1 candles.
 
     entry_hour is New York wall-clock time, so the session stays put across daylight-saving changes.
     Fires when the last completed candle is the hour before entry_hour, so the fill lands at entry_hour. The runner's holding limit closes it at the session end. Target is a placeholder:
     session runs use the ladder, which replaces it with a distant ceiling.
+
+    Pre-entry checks, each chosen per instrument from the 5-year backtest:
+    - trend_ema: only buy if the last completed daily close is above its EMA of this many days.
+    - calm_ratio: skip if the 14-hour ATR is at least this multiple of the ~20-day hourly ATR.
     """
     if len(candles) < 30 or "time" not in candles:
         return None
-    frame = _indicators(candles.tail(100))
+    frame = _indicators(candles)
     latest = frame.iloc[-1]
     stamp = pd.Timestamp(latest["time"]).tz_convert("America/New_York")
     if stamp.hour != (entry_hour - 1) % 24:
@@ -150,8 +156,33 @@ def session_long_signal(candles: pd.DataFrame, entry_hour: int = 13, stop_atr: f
     entry, atr = float(latest["close"]), float(latest["atr"])
     if not pd.notna(atr) or atr <= 0:
         return None
+    checks = []
+    if trend_ema:
+        closes = daily["close"] if daily is not None and len(daily) >= trend_ema else None
+        if closes is None:
+            logging.info("analysis: skip, not enough daily history for the %d-day trend check", trend_ema)
+            return None
+        ema = float(closes.ewm(span=trend_ema, adjust=False).mean().iloc[-1])
+        last = float(closes.iloc[-1])
+        if last <= ema:
+            logging.info("analysis: skip, downtrend (daily close %.3f <= %d-day EMA %.3f)", last, trend_ema, ema)
+            return None
+        checks.append(f"uptrend {last:.2f}>{trend_ema}d EMA {ema:.2f}")
+    if calm_ratio:
+        high, low, prev = frame["high"], frame["low"], frame["close"].shift(1)
+        true_range = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
+        normal = float(true_range.rolling(24 * 20, min_periods=200).mean().iloc[-1])
+        if not normal > 0:
+            logging.info("analysis: skip, not enough hourly history for the volatility check")
+            return None
+        if atr >= calm_ratio * normal:
+            logging.info("analysis: skip, volatility %.2fx normal (limit %.2fx)", atr / normal, calm_ratio)
+            return None
+        checks.append(f"volatility {atr / normal:.2f}x normal")
     risk = stop_atr * atr
-    return Signal("buy", entry, entry - risk, entry + 1.2 * risk, f"session long from {entry_hour:02d}:00 New York")
+    reason = f"session long from {entry_hour:02d}:00 New York" + (" | " + "; ".join(checks) if checks else "")
+    logging.info("analysis: enter, %s", reason)
+    return Signal("buy", entry, entry - risk, entry + 1.2 * risk, reason)
 
 
 STRATEGIES = {

@@ -94,3 +94,28 @@ def test_session_long_can_skip_friday_entries():
     assert pd.Timestamp(friday["time"].iloc[-1]).weekday() == 4
     assert session_long_signal(friday, entry_hour=17, skip_friday=True) is None
     assert session_long_signal(friday, entry_hour=17) is not None
+
+
+def _daily(closes):
+    return pd.DataFrame({"close": closes})
+
+
+def test_session_long_trend_check_blocks_downtrend_and_allows_uptrend():
+    from goldbot.strategy import session_long_signal
+    frame = _hourly()
+    up = _daily([100 + i for i in range(60)])
+    down = _daily([200 - i for i in range(60)])
+    assert session_long_signal(frame, entry_hour=17, trend_ema=50, daily=up) is not None
+    assert session_long_signal(frame, entry_hour=17, trend_ema=50, daily=down) is None
+    assert session_long_signal(frame, entry_hour=17, trend_ema=50, daily=None) is None
+
+
+def test_session_long_volatility_check_skips_wild_hours():
+    from goldbot.strategy import session_long_signal
+    frame = _hourly(periods=500, start="2026-09-12T01:00Z")
+    assert pd.Timestamp(frame["time"].iloc[-1]).tz_convert("America/New_York").hour == 16
+    assert session_long_signal(frame, entry_hour=17, calm_ratio=1.5) is not None
+    wild = frame.copy()
+    wild.loc[wild.index[-14:], "high"] += 5
+    wild.loc[wild.index[-14:], "low"] -= 5
+    assert session_long_signal(wild, entry_hour=17, calm_ratio=1.5) is None

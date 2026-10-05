@@ -217,7 +217,8 @@ class PracticeRunner:
             since_exit = (now - pd.Timestamp(self.state["last_exit"]).to_pydatetime()).total_seconds()
             if since_exit < self.config.cooldown_seconds:
                 return {**status, "action": "cooldown"}
-        candles = self.client.candles(self.config.instrument, self.config.granularity, 250)
+        session = self.config.strategy_name == "session_long"
+        candles = self.client.candles(self.config.instrument, self.config.granularity, 600 if session else 250)
         if candles.empty:
             return {**status, "action": "no_candles"}
         candle_time = str(candles.iloc[-1]["time"])
@@ -232,7 +233,10 @@ class PracticeRunner:
             return {**status, "action": "already_evaluated"}
         self.state["last_signal_key"] = key
         self._save_state()
-        signal = STRATEGIES[self.config.strategy_name](candles, **self.config.strategy_kwargs)
+        kwargs = dict(self.config.strategy_kwargs)
+        if kwargs.get("trend_ema"):
+            kwargs["daily"] = self.client.candles(self.config.instrument, "D", max(3 * kwargs["trend_ema"], 300))
+        signal = STRATEGIES[self.config.strategy_name](candles, **kwargs)
         if signal is None:
             return {**status, "action": "no_signal"}
         return {**status, **self._enter(signal, candle_time, account, pnl, opening)}

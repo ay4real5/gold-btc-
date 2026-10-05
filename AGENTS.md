@@ -145,6 +145,15 @@ break-even ladder, closed at session end by the holding limit. Scheduled tasks:
 - US30: +0.036R/trade but negative since 2025, so it runs at lower risk.
 - Rejected: DE30 (flat), JP225 (negative), gold entries at fixed 22/23 UTC (negative), silver overnight (spread).
 
+Pre-entry checks (each logs `analysis: enter|skip, ...` to the runner log):
+- Gold: `--calm-ratio 1.5` skips when the 14h ATR is >= 1.5x the ~20-day hourly ATR.
+  Backtest: +0.050 -> +0.060R/trade, DD 14.1 -> 10.6R, 2022 -2.5 -> +5.4R.
+- SPX500: `--trend-ema 50` buys only above the 50-day EMA. DD 29.5 -> 15.8R, 2022 -11.6 -> -2.9R.
+- NAS100: `--trend-ema 200`. +0.034 -> +0.043R, DD 24.5 -> 18.1R.
+- US30: `--trend-ema 50`. +0.032 -> +0.059R, and since 2025 -0.019 -> +0.019R. DD 32.5 -> 19.1R.
+- A "skip after a sharp prior-hour drop" check was tested and did not help.
+Choosing the best of 6 filters per asset is mild overfitting, so expect live results below the backtest.
+
 The edge is a known intraday-seasonality effect (gold rises outside US hours, US indices during them). It is
 small per trade and depends on keeping costs low. Ownership, the lock and the journal are now per instrument
 *and* strategy (trade tag), so different strategies can share an instrument.

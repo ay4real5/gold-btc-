@@ -37,6 +37,8 @@ def main() -> None:
     run.add_argument("--runner-hold-minutes", type=int, help="Close any trade after this long, even on the ladder (default 240)")
     run.add_argument("--entry-hour", type=int, help="session_long: UTC hour to buy")
     run.add_argument("--stop-atr", type=float, help="session_long: stop distance in H1 ATRs")
+    run.add_argument("--trend-ema", type=int, default=0, help="session_long: only buy above this daily EMA")
+    run.add_argument("--calm-ratio", type=float, default=0.0, help="session_long: skip when hourly ATR is this multiple of normal")
     run.add_argument("--skip-friday", action="store_true", help="session_long: no Friday entries (avoid weekend gaps)")
     run.add_argument("--ladder", action="store_true", help="Ratchet the stop at each 1.2R step instead of a fixed target")
     scalp_check = subparsers.add_parser("scalp-check", help="Read-only bid/ask historical check of a timed strategy")
@@ -66,7 +68,7 @@ def main() -> None:
         if args.runner_hold_minutes:
             overrides["runner_max_hold_seconds"] = args.runner_hold_minutes * 60
         if args.strategy == "session_long":
-            kwargs = {"skip_friday": args.skip_friday}
+            kwargs = {"skip_friday": args.skip_friday, "trend_ema": args.trend_ema, "calm_ratio": args.calm_ratio}
             if args.entry_hour is not None:
                 kwargs["entry_hour"] = args.entry_hour
             if args.stop_atr:
