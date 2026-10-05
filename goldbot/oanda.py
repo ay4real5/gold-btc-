@@ -118,6 +118,11 @@ class OandaClient:
     def close_trade(self, trade_id: str) -> dict[str, Any]:
         return self._request("PUT", f"/accounts/{self.account_id}/trades/{trade_id}/close", json={"units": "ALL"})
 
+    def set_trade_orders(self, trade_id: str, stop: str, take_profit: str) -> dict[str, Any]:
+        orders = {"stopLoss": {"price": stop, "timeInForce": "GTC"},
+                  "takeProfit": {"price": take_profit, "timeInForce": "GTC"}}
+        return self._request("PUT", f"/accounts/{self.account_id}/trades/{trade_id}/orders", json=orders)
+
     def market_order(self, instrument: str, units: str, stop: str, take_profit: str,
                      client_id: str, price_bound: str, tag: str) -> dict[str, Any]:
         order = {

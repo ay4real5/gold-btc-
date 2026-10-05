@@ -89,3 +89,20 @@ def test_scalp_backtest_stops_first_on_ambiguous_bar():
 def test_scalp_backtest_rejects_missing_bid_ask_data():
     with pytest.raises(ValueError, match="bid/ask"):
         run_scalp_backtest(pd.DataFrame({"close": [100] * 100}))
+
+
+def test_scalp_backtest_ladder_locks_previous_step():
+    candles = scalp_candles()
+    candles.loc[2, "bid_high"] = 102.5
+    candles.loc[3, ["bid_open", "bid_low"]] = [101.5, 101.1]
+    result = run_scalp_backtest(candles, slippage=0, strategy=entry_once, warmup=2, ladder=True)
+    assert result["results"]["net_r"] == pytest.approx(1.2)
+    assert result["exit_reasons"]["stop"] == 1
+
+
+def test_scalp_backtest_ladder_first_step_is_break_even_plus_buffer():
+    candles = scalp_candles()
+    candles.loc[2, "bid_high"] = 101.3
+    candles.loc[3, ["bid_open", "bid_low"]] = [100.5, 99.9]
+    result = run_scalp_backtest(candles, slippage=0, strategy=entry_once, warmup=2, ladder=True)
+    assert result["results"]["net_r"] == pytest.approx(0.05)

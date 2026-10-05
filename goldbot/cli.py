@@ -32,8 +32,10 @@ def main() -> None:
     run.add_argument("--account-id", help="Practice sub-account to trade (default: OANDA_ACCOUNT_ID)")
     run.add_argument("--data-dir", help="Folder for this runner's state, journal and log (default: data)")
     run.add_argument("--risk", type=float, help="Risk fraction per trade (default: RISK_FRACTION)")
+    run.add_argument("--ladder", action="store_true", help="Ratchet the stop at each 1.2R step instead of a fixed target")
     scalp_check = subparsers.add_parser("scalp-check", help="Read-only bid/ask historical check of a timed strategy")
     scalp_check.add_argument("--strategy", default="scalp", choices=list(TIMED_STRATEGIES))
+    scalp_check.add_argument("--ladder", action="store_true", help="Simulate the break-even ladder exit")
     scalp_check.add_argument("--days", type=int, default=30)
     scalp_check.add_argument("--slippage", type=float, default=0.05, help="USD per gold unit per market fill")
     args = parser.parse_args()
@@ -50,6 +52,7 @@ def main() -> None:
             overrides.update(state_path=f"{args.data_dir}/state.json", journal_path=f"{args.data_dir}/trades.csv")
         if args.risk is not None:
             overrides["risk_fraction"] = args.risk
+        overrides["ladder"] = args.ladder
         config = replace(config, **overrides)
         config.validate()
         client = OandaClient(config.token, config.account_id)
@@ -86,7 +89,7 @@ def main() -> None:
         candles = client.candles_between(config.instrument, end - timedelta(days=args.days), end, granularity)
         output = run_scalp_backtest(candles, slippage=args.slippage, strategy=STRATEGIES[args.strategy],
                                     risk_fraction=min(config.risk_fraction, 0.02), daily_loss_fraction=config.daily_loss_fraction,
-                                    bar_minutes=int(granularity[1:]), name=args.strategy)
+                                    bar_minutes=int(granularity[1:]), name=args.strategy, ladder=args.ladder)
     elif args.command == "compare":
         if not 7 <= args.days <= 730:
             raise ValueError("--days must be between 7 and 730")

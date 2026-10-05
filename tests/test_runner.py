@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 from decimal import Decimal
 
 import pandas as pd
@@ -298,3 +299,46 @@ def test_m1_fast_trades_are_owned_and_time_exited(tmp_path, monkeypatch):
     assert client.orders[0][6] == "goldbot-m1_fast"
     client.live[0]["openTime"] = (client.now - timedelta(minutes=16)).isoformat()
     assert runner.cycle()["action"] == "time_exit"
+
+
+def make_ladder_runner(tmp_path, monkeypatch):
+    client = FakeClient()
+    client.modified = []
+
+    def set_trade_orders(trade_id, stop, take_profit):
+        client.modified.append((trade_id, stop, take_profit))
+        client.trade(trade_id)["stopLossOrder"]["price"] = stop
+
+    client.set_trade_orders = set_trade_orders
+    monkeypatch.setitem(STRATEGIES, "scalp", lambda candles: Signal("buy", 100, 99, 101.2, "test"))
+    config = replace(make_config(tmp_path), ladder=True)
+    runner = PracticeRunner(config, client, execute=True, clock=lambda: client.now)
+    assert runner.cycle()["action"] == "order_filled"
+    client.candles = lambda *args: pd.DataFrame()
+    return runner, client
+
+
+def test_ladder_entry_uses_distant_broker_target(tmp_path, monkeypatch):
+    runner, client = make_ladder_runner(tmp_path, monkeypatch)
+    assert client.orders[0][2:4] == ("99.000", "112.000")
+
+
+def test_ladder_moves_stop_to_break_even_then_previous_step(tmp_path, monkeypatch):
+    runner, client = make_ladder_runner(tmp_path, monkeypatch)
+    client.quote.update(closeoutBid="101.3", closeoutAsk="101.35")
+    result = runner.cycle()
+    assert (result["action"], result["step"]) == ("ladder_step", 1)
+    assert client.modified[-1] == ("1", "100.050", "112.000")
+    client.quote.update(closeoutBid="102.5", closeoutAsk="102.55")
+    assert runner.cycle()["step"] == 2
+    assert client.modified[-1][1] == "101.200"
+    client.live[0]["openTime"] = (client.now - timedelta(minutes=30)).isoformat()
+    assert runner.cycle()["action"] == "open_trade_exists"
+    assert not client.closes
+
+
+def test_ladder_closes_when_price_already_fell_back_through_new_stop(tmp_path, monkeypatch):
+    runner, client = make_ladder_runner(tmp_path, monkeypatch)
+    client.candles = lambda *args: pd.DataFrame([{"time": client.now.isoformat(), "bid_high": 101.3, "high": 101.3}])
+    assert runner.cycle()["action"] == "ladder_stop"
+    assert client.closes == ["1"]

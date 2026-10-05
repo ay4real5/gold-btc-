@@ -92,3 +92,16 @@ sub-account with its own data folder and 0.1% risk, so the 3% daily cap allows a
   compared with M1 stops. The 2% default risk with the 3% daily cap throttles any strategy to about 2 trades/day.
 - OANDA GET requests retry 429/5xx/connection errors. Orders and closes are never retried.
 - No auto-restart is installed. Registering a Windows scheduled task needs Ayori's explicit approval.
+
+## Ladder exit (2026-10-05)
+
+`--ladder` on `run` or `scalp-check` replaces the fixed 1.2R target with a stepped stop.
+- At +1.2R the stop moves to break-even plus 0.05R. At each further 1.2R step it moves to the previous step.
+- The broker take-profit becomes a distant 12R ceiling. The broker stop-loss stays attached the whole time.
+- After step 1 the 15-minute time exit becomes a 4-hour limit.
+- The bot detects steps from the current quote and M1 highs/lows since entry. If price has already fallen back through
+  the new stop, it closes the trade (`ladder_stop`).
+- Stop updates use `PUT /trades/{id}/orders` and are not retried.
+- Over 28 days of scalp38 history: fixed target +3.3R (PF 1.05, max DD 9.6R), ladder +3.6R (PF 1.06, max DD 13.0R).
+  No proven difference yet. The plan is an A/B test: the main account runs scalp38 with the fixed target, and a second
+  practice sub-account runs `--strategy scalp38 --ladder --account-id <id> --data-dir data/scalp38_ladder --risk 0.001 --execute`.

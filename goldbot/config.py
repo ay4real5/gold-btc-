@@ -25,6 +25,9 @@ class Config:
     cooldown_seconds: int = 300
     max_spread_r: float = 0.10
     slippage_r: float = 0.05
+    ladder: bool = False
+    ladder_step_r: float = 1.2
+    runner_max_hold_seconds: int = 14400
 
     @property
     def granularity(self) -> str:
@@ -68,5 +71,7 @@ class Config:
             raise ValueError("Only XAU_USD is supported for execution")
         if self.max_hold_seconds < 300 or self.cooldown_seconds < 300:
             raise ValueError("Holding limit and cooldown must be at least five minutes")
+        if not 0.3 <= self.ladder_step_r <= 5 or self.runner_max_hold_seconds < self.max_hold_seconds:
+            raise ValueError("Invalid ladder step or runner holding limit")
         if not 0 < self.max_spread_r <= 0.25 or not 0 < self.slippage_r <= 0.10:
             raise ValueError("Invalid spread or slippage risk limit")

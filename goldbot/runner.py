@@ -18,6 +18,11 @@ from .risk import daily_loss_reached, position_units
 from .strategy import STRATEGIES, TIMED_STRATEGIES
 
 
+# In ladder mode the broker take-profit is a distant ceiling; the bot ratchets the stop instead.
+LADDER_CEILING_STEPS = 10
+# The first ladder stop sits slightly past entry so spread and slippage do not turn break-even into a loss.
+BREAK_EVEN_BUFFER_R = Decimal("0.05")
+
 OWNED_TAGS = {"goldbot-" + name for name in ("session_breakout", *TIMED_STRATEGIES)}
 
 
@@ -168,7 +173,13 @@ class PracticeRunner:
                 return self._close(trade, "missing_protection")
             tag = trade["clientExtensions"]["tag"]
             age = (now - pd.Timestamp(trade["openTime"]).to_pydatetime()).total_seconds()
-            if tag.removeprefix("goldbot-") in TIMED_STRATEGIES and age >= self.config.max_hold_seconds:
+            if self.config.ladder:
+                result = self._ladder(trade, now)
+                if result:
+                    return result
+            step = self.state.get("ladder", {}).get(trade["id"], {}).get("step", 0)
+            limit = self.config.runner_max_hold_seconds if step else self.config.max_hold_seconds
+            if tag.removeprefix("goldbot-") in TIMED_STRATEGIES and age >= limit:
                 return self._close(trade, "time_exit")
             if trade["clientExtensions"].get("id") == self.state.get("pending_order"):
                 self.state.pop("pending_order", None)
@@ -238,7 +249,11 @@ class PracticeRunner:
         ask, bid = number(asks[0]["price"]), number(bids[0]["price"])
         precision = int(self.instrument["displayPrecision"])
         stop = number(f"{signal.stop:.{precision}f}")
-        target = number(f"{signal.take_profit:.{precision}f}")
+        take_profit = signal.take_profit
+        if self.config.ladder:
+            reach = abs(signal.entry - signal.stop) * self.config.ladder_step_r * LADDER_CEILING_STEPS
+            take_profit = signal.entry + reach if signal.side == "buy" else signal.entry - reach
+        target = number(f"{take_profit:.{precision}f}")
         entry = ask if signal.side == "buy" else bid
         distance = abs(number(signal.entry) - stop)
         if distance <= 0 or bid <= 0 or ask < bid:
@@ -305,6 +320,49 @@ class PracticeRunner:
         self.state.pop("pending_order", None)
         self._save_state()
         return {"action": "order_filled", "trade_id": trade_id, "units": str(signed)}
+
+    def _ladder(self, trade, now) -> dict | None:
+        """Step the stop up as price reaches each multiple of ladder_step_r: break-even first, then the previous step."""
+        ladders = self.state.setdefault("ladder", {})
+        info = ladders.get(trade["id"])
+        if info is None:
+            entry = number(trade["price"])
+            info = {"entry": str(entry), "risk": str(abs(entry - number(trade["stopLossOrder"]["price"]))), "step": 0}
+            ladders[trade["id"]] = info
+            self._save_state()
+        entry, risk = number(info["entry"]), number(info["risk"])
+        direction = 1 if number(trade["initialUnits"]) > 0 else -1
+        side = "bid" if direction == 1 else "ask"
+        current = number(self.client.pricing(self.config.instrument)[side + "s"][0]["price"])
+        best = current
+        opened = pd.Timestamp(trade["openTime"]).floor("min")
+        minutes = int((now - opened.to_pydatetime()).total_seconds() // 60) + 2
+        candles = self.client.candles(self.config.instrument, "M1", min(max(minutes, 2), 500))
+        if not candles.empty:
+            recent = candles[pd.to_datetime(candles["time"], utc=True) >= opened]
+            column = f"{side}_high" if direction == 1 else f"{side}_low"
+            if column not in recent:
+                column = "high" if direction == 1 else "low"
+            if not recent.empty:
+                extreme = number(recent[column].max() if direction == 1 else recent[column].min())
+                best = max(best, extreme) if direction == 1 else min(best, extreme)
+        step_size = risk * number(self.config.ladder_step_r)
+        if step_size <= 0:
+            return None
+        reached = int((best - entry) * direction / step_size)
+        if reached <= info["step"]:
+            return None
+        offset = risk * BREAK_EVEN_BUFFER_R if reached == 1 else step_size * (reached - 1)
+        precision = int(self.instrument["displayPrecision"])
+        stop = number(f"{entry + direction * offset:.{precision}f}")
+        if (current - stop) * direction <= 0:
+            return self._close(trade, "ladder_stop")
+        if not self.execute:
+            return {"action": "dry_run_ladder_step", "trade_id": trade["id"], "step": reached, "sl": str(stop)}
+        self.client.set_trade_orders(trade["id"], f"{stop:.{precision}f}", trade["takeProfitOrder"]["price"])
+        info["step"] = reached
+        self._save_state()
+        return {"action": "ladder_step", "trade_id": trade["id"], "step": reached, "sl": str(stop)}
 
     def run(self) -> None:
         logging.info("Starting practice runner execute=%s strategy=%s", self.execute, self.config.strategy_name)

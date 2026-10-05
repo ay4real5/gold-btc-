@@ -79,7 +79,8 @@ def summarize(results: list[float]) -> BacktestResult:
 def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
                        strategy: Callable = scalp_signal, warmup: int = 60,
                        risk_fraction: float = 0.02, daily_loss_fraction: float = 0.03,
-                       bar_minutes: int = 5, name: str = "scalp") -> dict:
+                       bar_minutes: int = 5, name: str = "scalp",
+                       ladder: bool = False, step_r: float = 1.2, runner_hold_minutes: int = 240) -> dict:
     if not isfinite(slippage) or slippage < 0:
         raise ValueError("Slippage must be finite and nonnegative")
     if not 0 < risk_fraction <= 0.02 or not 0 < daily_loss_fraction <= 0.10:
@@ -141,7 +142,10 @@ def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
                     if (distance > 0 and 0 <= ask - bid <= 0.10 * distance
                             and abs(quote - signal.entry) <= 0.25 * distance
                             and slippage <= 0.05 * distance and valid):
-                        active = {"entry": entry, "risk": abs(entry - stop), "stop": stop, "target": target,
+                        risk = abs(entry - stop)
+                        if ladder:
+                            target = entry + direction * step_r * risk
+                        active = {"entry": entry, "risk": risk, "stop": stop, "target": target, "step": 0,
                                   "direction": direction, "deadline": now + timedelta(minutes=15), "budget": budget}
                     else:
                         rejected += 1
@@ -155,8 +159,18 @@ def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
             if stop_hit:
                 exit_price = min(opening, active["stop"]) if direction == 1 else max(opening, active["stop"])
                 finish(exit_price - direction * slippage, now + bar, "stop")
-            elif target_hit:
+            elif target_hit and not ladder:
                 finish(active["target"], now + bar, "target")
+            elif target_hit:
+                # Ratchet: break-even (plus a small buffer) at step 1, then the previous step, for every step this bar reached.
+                while target_hit:
+                    active["step"] += 1
+                    step = active["step"]
+                    offset = 0.05 * active["risk"] if step == 1 else (step - 1) * step_r * active["risk"]
+                    active["stop"] = active["entry"] + direction * offset
+                    active["target"] = active["entry"] + direction * (step + 1) * step_r * active["risk"]
+                    active["deadline"] = max(active["deadline"], now + timedelta(minutes=runner_hold_minutes))
+                    target_hit = high >= active["target"] if direction == 1 else low <= active["target"]
     if active:
         side = "bid" if active["direction"] == 1 else "ask"
         finish(float(frame.iloc[-1][f"{side}_close"]) - active["direction"] * slippage,
@@ -175,4 +189,5 @@ def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
         "monthly": {month: asdict(summarize(values)) for month, values in months.items()},
         "exit_reasons": {reason: sum(item["reason"] == reason for item in exits)
                          for reason in ("stop", "target", "time_exit", "end_of_sample")},
+        "exit_model": f"ladder {step_r}R steps, stop ratchets to break-even then previous step" if ladder else "fixed target",
     }
