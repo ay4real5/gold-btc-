@@ -91,7 +91,7 @@ sub-account with its own data folder and 0.1% risk, so the 3% daily cap allows a
   (+0.02R/trade, PF 1.07); m1_fast had 362 trades and -60.5R (-0.17R/trade, PF 0.66), because spread is large
   compared with M1 stops. The 2% default risk with the 3% daily cap throttles any strategy to about 2 trades/day.
 - OANDA GET requests retry 429/5xx/connection errors. Orders and closes are never retried.
-- No auto-restart is installed. Registering a Windows scheduled task needs Ayori's explicit approval.
+- Auto-restart: Windows scheduled task `GoldBotRunner` (installed by Ayori's request via `tools/install_task.ps1`) runs scalp38 + ladder at logon and re-checks every 5 minutes. Stop it with `Stop-ScheduledTask GoldBotRunner` and remove it with `Unregister-ScheduledTask GoldBotRunner`.
 
 ## Ladder exit (2026-10-05)
 
