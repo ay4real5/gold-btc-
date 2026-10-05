@@ -130,6 +130,30 @@ def m1_fast_signal(candles: pd.DataFrame) -> Signal | None:
     return None
 
 
+def session_long_signal(candles: pd.DataFrame, entry_hour: int = 13, stop_atr: float = 6.0,
+                        skip_friday: bool = False) -> Signal | None:
+    """Long-only session hold on H1 candles.
+
+    entry_hour is New York wall-clock time, so the session stays put across daylight-saving changes.
+    Fires when the last completed candle is the hour before entry_hour, so the fill lands at entry_hour. The runner's holding limit closes it at the session end. Target is a placeholder:
+    session runs use the ladder, which replaces it with a distant ceiling.
+    """
+    if len(candles) < 30 or "time" not in candles:
+        return None
+    frame = _indicators(candles.tail(100))
+    latest = frame.iloc[-1]
+    stamp = pd.Timestamp(latest["time"]).tz_convert("America/New_York")
+    if stamp.hour != (entry_hour - 1) % 24:
+        return None
+    if skip_friday and (stamp + pd.Timedelta(hours=1)).weekday() == 4:
+        return None
+    entry, atr = float(latest["close"]), float(latest["atr"])
+    if not pd.notna(atr) or atr <= 0:
+        return None
+    risk = stop_atr * atr
+    return Signal("buy", entry, entry - risk, entry + 1.2 * risk, f"session long from {entry_hour:02d}:00 New York")
+
+
 STRATEGIES = {
     "breakout": breakout_signal,
     "pullback": pullback_signal,
@@ -137,7 +161,8 @@ STRATEGIES = {
     "scalp": scalp_signal,
     "scalp38": scalp38_signal,
     "m1_fast": m1_fast_signal,
+    "session_long": session_long_signal,
 }
 
 # Strategies that use the short-hold model: 15-minute time exit, cooldown, bid/ask scalp check.
-TIMED_STRATEGIES = {"scalp": "M5", "scalp38": "M5", "m1_fast": "M1"}
+TIMED_STRATEGIES = {"scalp": "M5", "scalp38": "M5", "m1_fast": "M1", "session_long": "H1"}

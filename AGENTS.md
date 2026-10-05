@@ -123,3 +123,28 @@ client IDs are scoped per instrument. Five scheduled tasks run scalp38 + ladder 
 - EUR_USD, GBP_USD, AUD_USD, USD_CAD and the JPY crosses got 0 trades, because the 10% spread/stop filter blocks M5 and M15 forex.
 
 No instrument has a proven edge. These runners collect data.
+
+## Session portfolio (2026-10-05, current setup)
+
+Strategy `session_long`: long-only, buy at a New York wall-clock hour (DST-aware) on H1 candles, stop 3 x H1 ATR,
+break-even ladder, closed at session end by the holding limit. Scheduled tasks:
+
+| Task | Instrument | Entry -> exit (NY time) | Risk |
+|---|---|---|---|
+| GoldBot_Session_XAU_USD | XAU_USD | 16:00 -> 09:00 next day, no Friday entries | 0.5% |
+| GoldBot_Session_SPX500_USD | SPX500_USD | 09:00 -> 16:00 | 0.3% |
+| GoldBot_Session_NAS100_USD | NAS100_USD | 09:00 -> 16:00 | 0.3% |
+| GoldBot_Session_US30_USD | US30_USD | 09:00 -> 16:00 | 0.2% |
+| GoldBotRunner_WTICO_USD | WTICO_USD | scalp38 + ladder (kept from earlier) | 0.1% |
+
+5-year H1 backtest (bid/ask, 0.2-spread slippage, 5%/yr financing on overnight holds, ladder on):
+- XAU 16->09 NY: 1000 trades, +0.054R/trade, +10.8R/yr, max DD 14R. +0.054 before 2025 and +0.053 after.
+  The only negative year was 2022 (-2.5R).
+- SPX500 09->16: +0.042R/trade, +10.8R/yr, DD 29.5R.
+- NAS100: +0.038R/trade, +9.8R/yr, DD 24.5R.
+- US30: +0.036R/trade but negative since 2025, so it runs at lower risk.
+- Rejected: DE30 (flat), JP225 (negative), gold entries at fixed 22/23 UTC (negative), silver overnight (spread).
+
+The edge is a known intraday-seasonality effect (gold rises outside US hours, US indices during them). It is
+small per trade and depends on keeping costs low. Ownership, the lock and the journal are now per instrument
+*and* strategy (trade tag), so different strategies can share an instrument.

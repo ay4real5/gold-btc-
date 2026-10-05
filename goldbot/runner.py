@@ -23,9 +23,6 @@ LADDER_CEILING_STEPS = 10
 # The first ladder stop sits slightly past entry so spread and slippage do not turn break-even into a loss.
 BREAK_EVEN_BUFFER_R = Decimal("0.05")
 
-OWNED_TAGS = {"goldbot-" + name for name in ("session_breakout", *TIMED_STRATEGIES)}
-
-
 def number(value) -> Decimal:
     result = Decimal(str(value))
     if not result.is_finite():
@@ -57,7 +54,7 @@ class PracticeRunner:
     @contextmanager
     def execution_lock(self):
         suffix = "execute" if self.execute else "dry"
-        path = Path(tempfile.gettempdir()) / f"goldbot-{self.account_key}-{self.config.instrument}-{suffix}.lock"
+        path = Path(tempfile.gettempdir()) / f"goldbot-{self.account_key}-{self.config.instrument}-{self.config.strategy_name}-{suffix}.lock"
         with path.open("a+b") as handle:
             handle.write(b"0")
             handle.flush()
@@ -103,7 +100,7 @@ class PracticeRunner:
 
     def _owned(self, trade) -> bool:
         return (trade["instrument"] == self.config.instrument
-                and trade.get("clientExtensions", {}).get("tag") in OWNED_TAGS)
+                and trade.get("clientExtensions", {}).get("tag") == "goldbot-" + self.config.strategy_name)
 
     def _record(self, trade, closed: bool) -> None:
         if trade["id"] in self.journal.trade_ids(closed=closed):
@@ -131,7 +128,7 @@ class PracticeRunner:
                     self.state["last_exit"] = closed_at
                 if trade.get("clientExtensions", {}).get("id") == self.state.get("pending_order"):
                     self.state.pop("pending_order", None)
-            if trade["id"] not in known and trade["instrument"] == self.config.instrument:
+            if trade["id"] not in known and self._owned(trade):
                 self._record(trade, closed=True)
                 known.add(trade["id"])
                 added += 1
@@ -235,7 +232,7 @@ class PracticeRunner:
             return {**status, "action": "already_evaluated"}
         self.state["last_signal_key"] = key
         self._save_state()
-        signal = STRATEGIES[self.config.strategy_name](candles)
+        signal = STRATEGIES[self.config.strategy_name](candles, **self.config.strategy_kwargs)
         if signal is None:
             return {**status, "action": "no_signal"}
         return {**status, **self._enter(signal, candle_time, account, pnl, opening)}

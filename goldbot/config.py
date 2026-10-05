@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import re
 
@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from .strategy import TIMED_STRATEGIES
 
-GRANULARITY_SECONDS = {"M1": 60, "M5": 300, "M15": 900}
+GRANULARITY_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,7 @@ class Config:
     ladder: bool = False
     ladder_step_r: float = 1.2
     runner_max_hold_seconds: int = 14400
+    strategy_kwargs: dict = field(default_factory=dict)
 
     @property
     def granularity(self) -> str:

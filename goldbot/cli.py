@@ -33,6 +33,11 @@ def main() -> None:
     run.add_argument("--data-dir", help="Folder for this runner's state, journal and log (default: data)")
     run.add_argument("--risk", type=float, help="Risk fraction per trade (default: RISK_FRACTION)")
     run.add_argument("--instrument", help="OANDA instrument, e.g. XAU_USD or EUR_USD (default: XAU_USD)")
+    run.add_argument("--hold-minutes", type=int, help="Close a trade that has not reached ladder step 1 after this long (default 15)")
+    run.add_argument("--runner-hold-minutes", type=int, help="Close any trade after this long, even on the ladder (default 240)")
+    run.add_argument("--entry-hour", type=int, help="session_long: UTC hour to buy")
+    run.add_argument("--stop-atr", type=float, help="session_long: stop distance in H1 ATRs")
+    run.add_argument("--skip-friday", action="store_true", help="session_long: no Friday entries (avoid weekend gaps)")
     run.add_argument("--ladder", action="store_true", help="Ratchet the stop at each 1.2R step instead of a fixed target")
     scalp_check = subparsers.add_parser("scalp-check", help="Read-only bid/ask historical check of a timed strategy")
     scalp_check.add_argument("--strategy", default="scalp", choices=list(TIMED_STRATEGIES))
@@ -56,6 +61,17 @@ def main() -> None:
         overrides["ladder"] = args.ladder
         if args.instrument:
             overrides["instrument"] = args.instrument
+        if args.hold_minutes:
+            overrides["max_hold_seconds"] = args.hold_minutes * 60
+        if args.runner_hold_minutes:
+            overrides["runner_max_hold_seconds"] = args.runner_hold_minutes * 60
+        if args.strategy == "session_long":
+            kwargs = {"skip_friday": args.skip_friday}
+            if args.entry_hour is not None:
+                kwargs["entry_hour"] = args.entry_hour
+            if args.stop_atr:
+                kwargs["stop_atr"] = args.stop_atr
+            overrides["strategy_kwargs"] = kwargs
         config = replace(config, **overrides)
         config.validate()
         client = OandaClient(config.token, config.account_id)

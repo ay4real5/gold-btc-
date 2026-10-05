@@ -108,7 +108,7 @@ def test_daily_loss_cap_survives_restart(tmp_path, monkeypatch):
 
 def test_closed_trade_reconciliation_is_idempotent_and_includes_costs(tmp_path, monkeypatch):
     runner, client = make_runner(tmp_path, monkeypatch)
-    client.closed = [{"id": "7", "instrument": "XAU_USD", "initialUnits": "1",
+    client.closed = [{"id": "7", "instrument": "XAU_USD", "initialUnits": "1", "clientExtensions": {"tag": "goldbot-scalp"},
                       "closeTime": client.now.isoformat(), "price": "100", "averageClosePrice": "102",
                       "realizedPL": "2", "financing": "-0.1", "commission": "0.2",
                       "stopLossOrder": {"price": "99"}, "takeProfitOrder": {"price": "102"}}]
@@ -363,3 +363,13 @@ def test_standalone_pending_order_still_blocks(tmp_path, monkeypatch):
     runner, client = make_runner(tmp_path, monkeypatch)
     client.pending = 1
     assert runner.cycle()["action"] == "pending_orders"
+
+
+def test_runner_ignores_same_instrument_trade_from_other_strategy(tmp_path, monkeypatch):
+    runner, client = make_runner(tmp_path, monkeypatch)
+    client.live.append({"id": "77", "instrument": "XAU_USD", "state": "OPEN",
+                        "openTime": (client.now - timedelta(hours=3)).isoformat(), "initialUnits": "1", "price": "100",
+                        "clientExtensions": {"id": "o", "tag": "goldbot-overnight"},
+                        "stopLossOrder": {"price": "99", "state": "PENDING"}, "takeProfitOrder": {"price": "102", "state": "PENDING"}})
+    assert runner.cycle()["action"] == "open_trade_exists"
+    assert client.closes == [] and "77" not in runner.journal.trade_ids(closed=False)

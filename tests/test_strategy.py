@@ -70,3 +70,27 @@ def test_m1_fast_needs_trend_side_and_prior_candle_break():
     falling = [200 - v for v in rising]
     assert m1_fast_signal(_frame(falling)).side == "sell"
     assert m1_fast_signal(_frame([100] * 60)) is None
+
+
+def _hourly(periods=45, start="2026-10-01T00:00Z"):
+    times = pd.date_range(start, periods=periods, freq="1h")
+    closes = [100 + (i % 3) * 0.5 for i in range(periods)]
+    return pd.DataFrame({"time": times.strftime("%Y-%m-%dT%H:%M:%S.000000000Z"), "open": closes, "close": closes,
+                         "high": [v + 0.4 for v in closes], "low": [v - 0.4 for v in closes]})
+
+
+def test_session_long_fires_only_before_entry_hour_and_is_long():
+    from goldbot.strategy import session_long_signal
+    frame = _hourly()  # last candle 2026-10-02 20:00 UTC = 16:00 New York (EDT), so entry is 17:00 NY
+    signal = session_long_signal(frame, entry_hour=17, stop_atr=6)
+    assert signal.side == "buy" and signal.stop < signal.entry < signal.take_profit
+    assert session_long_signal(frame.iloc[:-1], entry_hour=17) is None
+    assert session_long_signal(frame, entry_hour=21) is None
+
+
+def test_session_long_can_skip_friday_entries():
+    from goldbot.strategy import session_long_signal
+    friday = _hourly(start="2026-10-01T00:00Z")  # last candle Friday 16:00 NY -> Friday 17:00 NY entry
+    assert pd.Timestamp(friday["time"].iloc[-1]).weekday() == 4
+    assert session_long_signal(friday, entry_hour=17, skip_friday=True) is None
+    assert session_long_signal(friday, entry_hour=17) is not None
