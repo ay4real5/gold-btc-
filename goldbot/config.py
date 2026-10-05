@@ -3,6 +3,10 @@ import os
 
 from dotenv import load_dotenv
 
+from .strategy import TIMED_STRATEGIES
+
+GRANULARITY_SECONDS = {"M1": 60, "M5": 300, "M15": 900}
+
 
 @dataclass(frozen=True)
 class Config:
@@ -24,11 +28,11 @@ class Config:
 
     @property
     def granularity(self) -> str:
-        return "M5" if self.strategy_name == "scalp" else "M15"
+        return TIMED_STRATEGIES.get(self.strategy_name, "M15")
 
     @property
     def candle_seconds(self) -> int:
-        return 300 if self.strategy_name == "scalp" else 900
+        return GRANULARITY_SECONDS[self.granularity]
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -58,7 +62,7 @@ class Config:
             raise ValueError("DAILY_LOSS_FRACTION must be between 0 and 0.10")
         if not 10 <= self.poll_seconds <= 60 or self.stale_seconds < 300:
             raise ValueError("Polling must be 10-60s and stale detection at least 300s")
-        if self.strategy_name not in {"session_breakout", "scalp"}:
+        if self.strategy_name not in {"session_breakout", *TIMED_STRATEGIES}:
             raise ValueError("Unsupported execution strategy")
         if self.instrument != "XAU_USD":
             raise ValueError("Only XAU_USD is supported for execution")

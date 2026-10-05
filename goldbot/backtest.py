@@ -78,22 +78,24 @@ def summarize(results: list[float]) -> BacktestResult:
 
 def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
                        strategy: Callable = scalp_signal, warmup: int = 60,
-                       risk_fraction: float = 0.02, daily_loss_fraction: float = 0.03) -> dict:
+                       risk_fraction: float = 0.02, daily_loss_fraction: float = 0.03,
+                       bar_minutes: int = 5, name: str = "scalp") -> dict:
     if not isfinite(slippage) or slippage < 0:
         raise ValueError("Slippage must be finite and nonnegative")
     if not 0 < risk_fraction <= 0.02 or not 0 < daily_loss_fraction <= 0.10:
         raise ValueError("Invalid simulated risk limits")
     required = [f"{side}_{field}" for side in ("bid", "ask") for field in ("open", "high", "low", "close")]
     if len(candles) <= warmup + 1 or not {"time", *required}.issubset(candles.columns):
-        raise ValueError("Insufficient M5 bid/ask history")
+        raise ValueError("Insufficient bid/ask history")
     frame = candles.reset_index(drop=True)
     times = pd.to_datetime(frame["time"], utc=True)
     if not times.is_monotonic_increasing or times.duplicated().any():
         raise ValueError("Candles must be ordered and unique")
     if not all(isfinite(float(v)) and float(v) > 0 for v in frame[required].to_numpy().ravel()):
         raise ValueError("Invalid bid/ask data")
-    if (times.diff().dropna().dt.total_seconds() < 300).any():
-        raise ValueError("Expected M5 candles")
+    bar = timedelta(minutes=bar_minutes)
+    if (times.diff().dropna().dt.total_seconds() < bar.total_seconds()).any():
+        raise ValueError(f"Expected M{bar_minutes} candles")
     times = [stamp.to_pydatetime() for stamp in times]
     results, exits = [], []
     active = None
@@ -126,7 +128,7 @@ def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
         if active is None and now >= cooldown_until and not daily_halted:
             budget = equity * risk_fraction
             remaining = day_opening * daily_loss_fraction + min(equity - day_opening, 0)
-            if budget <= remaining and times[index] - times[index - 1] == timedelta(minutes=5):
+            if budget <= remaining and times[index] - times[index - 1] == bar:
                 signal = strategy(frame.iloc[max(0, index - 250):index])
                 if signal:
                     direction = 1 if signal.side == "buy" else -1
@@ -152,19 +154,19 @@ def run_scalp_backtest(candles: pd.DataFrame, slippage: float = 0.05,
             target_hit = high >= active["target"] if direction == 1 else low <= active["target"]
             if stop_hit:
                 exit_price = min(opening, active["stop"]) if direction == 1 else max(opening, active["stop"])
-                finish(exit_price - direction * slippage, now + timedelta(minutes=5), "stop")
+                finish(exit_price - direction * slippage, now + bar, "stop")
             elif target_hit:
-                finish(active["target"], now + timedelta(minutes=5), "target")
+                finish(active["target"], now + bar, "target")
     if active:
         side = "bid" if active["direction"] == 1 else "ask"
         finish(float(frame.iloc[-1][f"{side}_close"]) - active["direction"] * slippage,
-               times[-1] + timedelta(minutes=5), "end_of_sample")
+               times[-1] + bar, "end_of_sample")
     months = {}
     for exit in exits:
         month = exit["time"][:7]
         months.setdefault(month, []).append(exit["r"])
     return {
-        "strategy": "scalp", "granularity": "M5", "candles": len(frame),
+        "strategy": name, "granularity": f"M{bar_minutes}", "candles": len(frame),
         "start": times[0].isoformat(), "end": times[-1].isoformat(),
         "model": "next-open bid/ask fills; adverse slippage; stop-first intrabar ties; gap losses; 15m time exit; 5m cooldown; daily risk budget",
         "limitations": "OHLC approximation, no intrabar sequence, commission, financing, margin or GBP conversion model; not an execution guarantee",

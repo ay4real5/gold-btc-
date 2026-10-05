@@ -86,22 +86,47 @@ def session_breakout_signal(candles: pd.DataFrame, atr_period: int = 14) -> Sign
     return None
 
 
-def scalp_signal(candles: pd.DataFrame) -> Signal | None:
+def _ema_cross(candles: pd.DataFrame, fast_span: int, slow_span: int, label: str) -> Signal | None:
     if len(candles) < 40:
         return None
     frame = _indicators(candles.tail(250))
-    fast = frame["close"].ewm(span=5, adjust=False).mean()
-    slow = frame["close"].ewm(span=12, adjust=False).mean()
-    latest, previous = frame.iloc[-1], frame.iloc[-2]
-    entry, atr = float(latest["close"]), float(latest["atr"])
+    fast = frame["close"].ewm(span=fast_span, adjust=False).mean()
+    slow = frame["close"].ewm(span=slow_span, adjust=False).mean()
+    entry, atr = float(frame["close"].iloc[-1]), float(frame["atr"].iloc[-1])
     if not pd.notna(atr) or atr <= 0:
         return None
     up = fast.iloc[-2] <= slow.iloc[-2] and fast.iloc[-1] > slow.iloc[-1]
     down = fast.iloc[-2] >= slow.iloc[-2] and fast.iloc[-1] < slow.iloc[-1]
     if up:
-        return Signal("buy", entry, entry - atr, entry + 1.2 * atr, "M5 EMA5/12 cross")
+        return Signal("buy", entry, entry - atr, entry + 1.2 * atr, label)
     if down:
-        return Signal("sell", entry, entry + atr, entry - 1.2 * atr, "M5 EMA5/12 cross")
+        return Signal("sell", entry, entry + atr, entry - 1.2 * atr, label)
+    return None
+
+
+def scalp_signal(candles: pd.DataFrame) -> Signal | None:
+    return _ema_cross(candles, 5, 12, "M5 EMA5/12 cross")
+
+
+def scalp38_signal(candles: pd.DataFrame) -> Signal | None:
+    return _ema_cross(candles, 3, 8, "M5 EMA3/8 cross")
+
+
+def m1_fast_signal(candles: pd.DataFrame) -> Signal | None:
+    """M1 trend continuation: close beyond the prior candle on the EMA20 side; 2 ATR stop, 1.2R target."""
+    if len(candles) < 40:
+        return None
+    frame = _indicators(candles.tail(250))
+    trend = frame["close"].ewm(span=20, adjust=False).mean().iloc[-1]
+    latest, previous = frame.iloc[-1], frame.iloc[-2]
+    entry, atr = float(latest["close"]), float(latest["atr"])
+    if not pd.notna(atr) or atr <= 0:
+        return None
+    risk = 2 * atr
+    if entry > trend and entry > float(previous["high"]):
+        return Signal("buy", entry, entry - risk, entry + 1.2 * risk, "M1 EMA20 continuation")
+    if entry < trend and entry < float(previous["low"]):
+        return Signal("sell", entry, entry + risk, entry - 1.2 * risk, "M1 EMA20 continuation")
     return None
 
 
@@ -110,4 +135,9 @@ STRATEGIES = {
     "pullback": pullback_signal,
     "session_breakout": session_breakout_signal,
     "scalp": scalp_signal,
+    "scalp38": scalp38_signal,
+    "m1_fast": m1_fast_signal,
 }
+
+# Strategies that use the short-hold model: 15-minute time exit, cooldown, bid/ask scalp check.
+TIMED_STRATEGIES = {"scalp": "M5", "scalp38": "M5", "m1_fast": "M1"}

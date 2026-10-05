@@ -22,3 +22,11 @@ def test_enforces_max_risk_fraction():
 def test_default_risk_fraction_is_two_percent():
     config = Config(token="token", account_id="account")
     assert config.risk_fraction == 0.02
+
+
+@pytest.mark.parametrize("name,granularity,seconds", [("scalp", "M5", 300), ("scalp38", "M5", 300),
+                                                      ("m1_fast", "M1", 60), ("session_breakout", "M15", 900)])
+def test_strategy_granularity(name, granularity, seconds):
+    config = Config(token="token", account_id="account", strategy_name=name)
+    config.validate()
+    assert (config.granularity, config.candle_seconds) == (granularity, seconds)

@@ -3,14 +3,13 @@ from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import json
 import logging
-import os
 from logging.handlers import RotatingFileHandler
 
 from .backtest import run_backtest, run_scalp_backtest
 from .config import Config
 from .oanda import OandaClient
 from .runner import PracticeRunner
-from .strategy import STRATEGIES, breakout_signal
+from .strategy import STRATEGIES, TIMED_STRATEGIES, breakout_signal
 
 
 def main() -> None:
@@ -29,8 +28,12 @@ def main() -> None:
     run = subparsers.add_parser("run", help="Run practice forward testing")
     run.add_argument("--execute", action="store_true", help="Allow practice orders")
     run.add_argument("--once", action="store_true", help="Run one cycle and exit")
-    run.add_argument("--strategy", default="session_breakout", choices=["session_breakout", "scalp"])
-    scalp_check = subparsers.add_parser("scalp-check", help="Read-only M5 bid/ask historical check")
+    run.add_argument("--strategy", default="session_breakout", choices=["session_breakout", *TIMED_STRATEGIES])
+    run.add_argument("--account-id", help="Practice sub-account to trade (default: OANDA_ACCOUNT_ID)")
+    run.add_argument("--data-dir", help="Folder for this runner's state, journal and log (default: data)")
+    run.add_argument("--risk", type=float, help="Risk fraction per trade (default: RISK_FRACTION)")
+    scalp_check = subparsers.add_parser("scalp-check", help="Read-only bid/ask historical check of a timed strategy")
+    scalp_check.add_argument("--strategy", default="scalp", choices=list(TIMED_STRATEGIES))
     scalp_check.add_argument("--days", type=int, default=30)
     scalp_check.add_argument("--slippage", type=float, default=0.05, help="USD per gold unit per market fill")
     args = parser.parse_args()
@@ -40,7 +43,16 @@ def main() -> None:
     config = Config.from_env()
     client = OandaClient(config.token, config.account_id)
     if args.command == "run":
-        config = replace(config, strategy_name=args.strategy)
+        overrides = {"strategy_name": args.strategy}
+        if args.account_id:
+            overrides["account_id"] = args.account_id
+        if args.data_dir:
+            overrides.update(state_path=f"{args.data_dir}/state.json", journal_path=f"{args.data_dir}/trades.csv")
+        if args.risk is not None:
+            overrides["risk_fraction"] = args.risk
+        config = replace(config, **overrides)
+        config.validate()
+        client = OandaClient(config.token, config.account_id)
         runner = PracticeRunner(config, client, execute=args.execute)
         with runner.execution_lock():
             runner.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,9 +82,11 @@ def main() -> None:
         if not 7 <= args.days <= 365:
             parser.error("--days must be between 7 and 365")
         end = datetime.now(timezone.utc)
-        candles = client.candles_between(config.instrument, end - timedelta(days=args.days), end, "M5")
-        output = run_scalp_backtest(candles, slippage=args.slippage,
-                                    risk_fraction=float(os.getenv("RISK_FRACTION", "0.02")), daily_loss_fraction=config.daily_loss_fraction)
+        granularity = TIMED_STRATEGIES[args.strategy]
+        candles = client.candles_between(config.instrument, end - timedelta(days=args.days), end, granularity)
+        output = run_scalp_backtest(candles, slippage=args.slippage, strategy=STRATEGIES[args.strategy],
+                                    risk_fraction=min(config.risk_fraction, 0.02), daily_loss_fraction=config.daily_loss_fraction,
+                                    bar_minutes=int(granularity[1:]), name=args.strategy)
     elif args.command == "compare":
         if not 7 <= args.days <= 730:
             raise ValueError("--days must be between 7 and 730")

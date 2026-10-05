@@ -15,7 +15,10 @@ from .config import Config
 from .journal import TradeJournal
 from .oanda import OandaClient
 from .risk import daily_loss_reached, position_units
-from .strategy import STRATEGIES
+from .strategy import STRATEGIES, TIMED_STRATEGIES
+
+
+OWNED_TAGS = {"goldbot-" + name for name in ("session_breakout", *TIMED_STRATEGIES)}
 
 
 def number(value) -> Decimal:
@@ -95,7 +98,7 @@ class PracticeRunner:
 
     def _owned(self, trade) -> bool:
         return (trade["instrument"] == self.config.instrument
-                and trade.get("clientExtensions", {}).get("tag") in {"goldbot-scalp", "goldbot-session_breakout"})
+                and trade.get("clientExtensions", {}).get("tag") in OWNED_TAGS)
 
     def _record(self, trade, closed: bool) -> None:
         if trade["id"] in self.journal.trade_ids(closed=closed):
@@ -165,7 +168,7 @@ class PracticeRunner:
                 return self._close(trade, "missing_protection")
             tag = trade["clientExtensions"]["tag"]
             age = (now - pd.Timestamp(trade["openTime"]).to_pydatetime()).total_seconds()
-            if tag == "goldbot-scalp" and age >= self.config.max_hold_seconds:
+            if tag.removeprefix("goldbot-") in TIMED_STRATEGIES and age >= self.config.max_hold_seconds:
                 return self._close(trade, "time_exit")
             if trade["clientExtensions"].get("id") == self.state.get("pending_order"):
                 self.state.pop("pending_order", None)

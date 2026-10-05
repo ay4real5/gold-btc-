@@ -284,3 +284,17 @@ def test_live_environment_refused_before_any_requests(tmp_path):
     from dataclasses import replace
     with pytest.raises(ValueError, match="practice"):
         PracticeRunner(replace(make_config(tmp_path), environment="live"), None, True)
+
+
+def test_m1_fast_trades_are_owned_and_time_exited(tmp_path, monkeypatch):
+    client = FakeClient()
+    monkeypatch.setitem(STRATEGIES, "m1_fast", lambda candles: Signal("buy", 100, 99, 101.2, "test"))
+    client.candles = lambda *args: pd.DataFrame([{"time": (client.now - timedelta(minutes=1)).isoformat(),
+                                                  "open": 100, "high": 101, "low": 99, "close": 100}])
+    config = Config(token="token", account_id="account", strategy_name="m1_fast",
+                    journal_path=str(tmp_path / "trades.csv"), state_path=str(tmp_path / "state.json"))
+    runner = PracticeRunner(config, client, execute=True, clock=lambda: client.now)
+    assert runner.cycle()["action"] == "order_filled"
+    assert client.orders[0][6] == "goldbot-m1_fast"
+    client.live[0]["openTime"] = (client.now - timedelta(minutes=16)).isoformat()
+    assert runner.cycle()["action"] == "time_exit"

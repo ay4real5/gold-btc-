@@ -76,3 +76,19 @@ explicitly, not the agent.
 - The first July-September 2026 M5 scalp check was negative. It is an experimental
   candidate, not a validated replacement for the session strategy. Historical
   session results also use the older, simpler backtest model.
+
+## High-frequency demo data collection (2026-10-05)
+
+Ayori wants at least 30 trades/day of demo data. Each timed strategy runs on its own practice
+sub-account with its own data folder and 0.1% risk, so the 3% daily cap allows about 30 losses:
+
+- `python -m goldbot run --strategy m1_fast --data-dir data/m1_fast --risk 0.001 --execute`
+  (main account): M1 EMA20 continuation, 2 ATR stop, 1.2R target. About 33-36 trades/day.
+- `python -m goldbot run --strategy scalp38 --account-id <sub-account> --data-dir data/scalp38 --risk 0.001 --execute`:
+  M5 EMA3/8 cross, about 9 trades/day. This needs a second practice sub-account that Ayori creates in the OANDA hub.
+- History checks: `python -m goldbot scalp-check --strategy {scalp,scalp38,m1_fast} --days 14`
+  (set `RISK_FRACTION=0.001`). Over 2026-09-21 to 2026-10-05: scalp38 had 90 trades and +2.0R
+  (+0.02R/trade, PF 1.07); m1_fast had 362 trades and -60.5R (-0.17R/trade, PF 0.66), because spread is large
+  compared with M1 stops. The 2% default risk with the 3% daily cap throttles any strategy to about 2 trades/day.
+- OANDA GET requests retry 429/5xx/connection errors. Orders and closes are never retried.
+- No auto-restart is installed. Registering a Windows scheduled task needs Ayori's explicit approval.
