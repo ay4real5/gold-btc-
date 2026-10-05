@@ -1,0 +1,68 @@
+from dataclasses import dataclass
+import os
+
+from dotenv import load_dotenv
+
+
+@dataclass(frozen=True)
+class Config:
+    token: str
+    account_id: str
+    environment: str = "practice"
+    instrument: str = "XAU_USD"
+    risk_fraction: float = 0.02
+    daily_loss_fraction: float = 0.03
+    journal_path: str = "data/trades.csv"
+    state_path: str = "data/state.json"
+    poll_seconds: int = 30
+    stale_seconds: int = 1800
+    strategy_name: str = "session_breakout"
+    max_hold_seconds: int = 900
+    cooldown_seconds: int = 300
+    max_spread_r: float = 0.10
+    slippage_r: float = 0.05
+
+    @property
+    def granularity(self) -> str:
+        return "M5" if self.strategy_name == "scalp" else "M15"
+
+    @property
+    def candle_seconds(self) -> int:
+        return 300 if self.strategy_name == "scalp" else 900
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        load_dotenv()
+        config = cls(
+            token=os.getenv("OANDA_API_TOKEN", ""),
+            account_id=os.getenv("OANDA_ACCOUNT_ID", ""),
+            environment=os.getenv("OANDA_ENV", ""),
+            risk_fraction=float(os.getenv("RISK_FRACTION", "0.02")),
+            daily_loss_fraction=float(os.getenv("DAILY_LOSS_FRACTION", "0.03")),
+            journal_path=os.getenv("JOURNAL_PATH", "data/trades.csv"),
+            state_path=os.getenv("STATE_PATH", "data/state.json"),
+            poll_seconds=int(os.getenv("POLL_SECONDS", "30")),
+            stale_seconds=int(os.getenv("STALE_SECONDS", "1800")),
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.environment != "practice":
+            raise ValueError("Refusing to run: OANDA_ENV must be practice")
+        if not self.token or not self.account_id:
+            raise ValueError("OANDA_API_TOKEN and OANDA_ACCOUNT_ID are required")
+        if not 0 < self.risk_fraction <= 0.05:
+            raise ValueError("RISK_FRACTION must be between 0 and 0.05")
+        if not 0 < self.daily_loss_fraction <= 0.10:
+            raise ValueError("DAILY_LOSS_FRACTION must be between 0 and 0.10")
+        if not 10 <= self.poll_seconds <= 60 or self.stale_seconds < 300:
+            raise ValueError("Polling must be 10-60s and stale detection at least 300s")
+        if self.strategy_name not in {"session_breakout", "scalp"}:
+            raise ValueError("Unsupported execution strategy")
+        if self.instrument != "XAU_USD":
+            raise ValueError("Only XAU_USD is supported for execution")
+        if self.max_hold_seconds < 300 or self.cooldown_seconds < 300:
+            raise ValueError("Holding limit and cooldown must be at least five minutes")
+        if not 0 < self.max_spread_r <= 0.25 or not 0 < self.slippage_r <= 0.10:
+            raise ValueError("Invalid spread or slippage risk limit")

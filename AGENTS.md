@@ -26,7 +26,7 @@ explicitly, not the agent.
 1. **Demo only.** Refuse to start if `OANDA_ENV` is not `practice`, unless
    Ayori explicitly adds a live mode later.
 2. **Stop-loss and take-profit on every order**, attached at order creation.
-3. **Flat, fixed risk per trade** (e.g. 1% of balance, sized from the SL
+3. **Flat, fixed risk per trade** (currently 2% of balance, sized from the SL
    distance). **No martingale, grid or loss-recovery staking.**
 4. **Daily loss cap.** Stop trading for the day after a set loss. Rebuild the
    day's PnL from the journal on restart, so the cap survives restarts.
@@ -52,3 +52,27 @@ explicitly, not the agent.
 
 - Buying or running third-party EX4/EX5 bots (see `CONVERSATION.md` §3).
 - Pocket Option / binary options.
+
+## Local verification and runner modes
+
+- Run tests from the repository root: `python -m pytest -q`.
+- Read-only account check: `python -m goldbot status`.
+- M5 scalp history check: `python -m goldbot scalp-check --days 90`.
+  Uses bid/ask candles, next-open entries, assumed adverse slippage, timed exits,
+  and a daily risk budget. It is still an OHLC approximation, not proof of execution or profitability.
+- No-order runner check: `python -m goldbot run --strategy scalp --once`.
+- Continuous observation: `python -m goldbot run --strategy scalp`.
+  Practice order execution requires the additional explicit `--execute` flag.
+- Execution defaults to the existing session breakout; select `--strategy scalp`
+  for M5 EMA9/20 fresh crosses with EMA50 trend, 1 ATR stops and 1.2 ATR targets.
+  Scalp trades have a 15-minute full-close deadline and a five-minute post-exit cooldown.
+  Time exits require the local process, network and market to be available; broker SL/TP remain attached.
+- The CLI takes a per-account process lock. Dry-run state/journal/logs are separate
+  from execution state. Runtime logs rotate beside the state file.
+- An ambiguous order submission persists a pending intent and blocks new entries
+  until reconciled. Do not delete state to bypass a pending intent or safety halt.
+- Keep this as a dedicated bot practice account. Manual transactions, transfers,
+  partial closes, and other agents can invalidate balance/journal-based daily accounting.
+- The first July-September 2026 M5 scalp check was negative. It is an experimental
+  candidate, not a validated replacement for the session strategy. Historical
+  session results also use the older, simpler backtest model.
