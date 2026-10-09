@@ -157,3 +157,12 @@ Choosing the best of 6 filters per asset is mild overfitting, so expect live res
 The edge is a known intraday-seasonality effect (gold rises outside US hours, US indices during them). It is
 small per trade and depends on keeping costs low. Ownership, the lock and the journal are now per instrument
 *and* strategy (trade tag), so different strategies can share an instrument.
+
+## Risk change (2026-10-09)
+
+After SPX500 and NAS100 were stopped out on the same day (2026-10-08), the US indices are treated as one
+correlated bet. SPX500 and NAS100 now run at 0.15% each and US30 at 0.1%. The oil scalp38 task
+(`GoldBotRunner_WTICO_USD`) was removed: it lost all 3 live trades and had weak backtest evidence. Gold stays
+at 0.5%.
+Live result of session_long from 2026-10-05 to 2026-10-08: 9 trades, about -2.5R (balance £99,312). That is within
+the backtest's normal drawdown range (10-18R).
